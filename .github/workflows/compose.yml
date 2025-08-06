@@ -1,0 +1,15 @@
+name: Docker Compose CI
+
+on: [push]
+
+jobs:
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Start services
+        run: docker-compose up -d
+      - name: Run tests
+        run: docker-compose exec service go test ./...
+      - name: Stop services
+        run: docker-compose down
