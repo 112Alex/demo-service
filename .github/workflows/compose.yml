@@ -8,8 +8,8 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Start services
-        run: docker-compose up -d
+        run: docker compose up -d
       - name: Run tests
-        run: docker-compose exec service go test ./...
+        run: docker compose exec service go test ./...
       - name: Stop services
-        run: docker-compose down
+        run: docker compose down
