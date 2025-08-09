@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	_ "github.com/lib/pq" // Импорт драйвера для PostgreSQL
 
@@ -56,7 +57,7 @@ func main() {
 	<-quit
 	log.Println("Сервис завершает работу...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5) // Даем 5 секунд на завершение
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) // Даем 5 секунд на завершение
 	defer cancel()
 	if err := httpServer.Shutdown(ctx); err != nil {
 		log.Fatalf("Ошибка при остановке HTTP-сервера: %v", err)

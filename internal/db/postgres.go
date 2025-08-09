@@ -148,8 +148,39 @@ func (c *DBClient) GetOrderFromDB(ctx context.Context, orderUID string) (*model.
 
 // GetAllOrders загружает все заказы из БД. Используется для восстановления кеша.
 func (c *DBClient) GetAllOrders(ctx context.Context) ([]*model.Order, error) {
-	// ... (реализация будет похожа на GetOrderFromDB, но в цикле для всех заказов)
-	// Эту функцию мы реализуем в следующей части, когда будем восстанавливать кеш.
-	// Пока что оставим ее в таком виде, чтобы не раздувать текущую главу.
-	return nil, nil
+	var orders []*model.Order
+
+	// Загружаем все order_uid из таблицы orders
+	rows, err := c.db.QueryContext(ctx, `SELECT order_uid FROM orders`)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка при получении списка заказов: %w", err)
+	}
+	defer rows.Close()
+
+	var orderUIDs []string
+	for rows.Next() {
+		var orderUID string
+		if err := rows.Scan(&orderUID); err != nil {
+			return nil, fmt.Errorf("ошибка при сканировании order_uid: %w", err)
+		}
+		orderUIDs = append(orderUIDs, orderUID)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("ошибка итерации по заказам: %w", err)
+	}
+
+	// Загружаем полную информацию для каждого заказа
+	for _, orderUID := range orderUIDs {
+		order, err := c.GetOrderFromDB(ctx, orderUID)
+		if err != nil {
+			log.Printf("Ошибка при загрузке заказа %s: %v", orderUID, err)
+			continue // Пропускаем проблемный заказ
+		}
+		if order != nil {
+			orders = append(orders, order)
+		}
+	}
+
+	return orders, nil
 }
