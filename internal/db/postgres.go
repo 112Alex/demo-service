@@ -7,10 +7,8 @@ import (
 	"log"
 
 	"github.com/112Alex/demo-service.git/internal/model"
-	// _ "github.com/lib/pq" // Импортируем драйвер PostgreSQL
 )
 
-// DBClient представляет клиент для работы с PostgreSQL.
 type DBClient struct {
 	db *sql.DB
 }
@@ -41,9 +39,8 @@ func (c *DBClient) SaveOrder(ctx context.Context, order *model.Order) error {
 	if err != nil {
 		return fmt.Errorf("не удалось начать транзакцию: %w", err)
 	}
-	defer tx.Rollback() // Откат в случае ошибки, если коммит не был выполнен
+	defer tx.Rollback()
 
-	// Сохранение основной информации о заказе
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO orders (order_uid, track_number, entry, locale, internal_signature, customer_id, delivery_service, shardkey, sm_id, date_created, oof_shard)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)

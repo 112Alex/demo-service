@@ -1,19 +1,16 @@
 package cache
 
 import (
-	"log"
 	"sync"
 
 	"github.com/112Alex/demo-service.git/internal/model"
 )
 
-// Cache представляет собой потокобезопасный кэш для хранения заказов.
 type Cache struct {
 	mu     sync.RWMutex
 	orders map[string]*model.Order
 }
 
-// NewCache создает и возвращает новый экземпляр кэша.
 func NewCache() *Cache {
 	return &Cache{
 		orders: make(map[string]*model.Order),
@@ -25,11 +22,8 @@ func (c *Cache) Set(orderUID string, order *model.Order) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.orders[orderUID] = order
-	log.Printf("Заказ %s добавлен в кэш", orderUID)
 }
 
-// Get извлекает заказ из кэша по orderUID.
-// Возвращает nil, если заказ не найден.
 func (c *Cache) Get(orderUID string) (*model.Order, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

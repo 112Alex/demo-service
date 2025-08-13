@@ -2,12 +2,11 @@ package model
 
 import "time"
 
-// Order представляет собой полную структуру данных заказа
 type Order struct {
 	OrderUID          string    `json:"order_uid" db:"order_uid"`
 	TrackNumber       string    `json:"track_number" db:"track_number"`
 	Entry             string    `json:"entry" db:"entry"`
-	Delivery          Delivery  `json:"delivery" db:"-"` // "-" чтобы игнорировать поле при сканировании из БД
+	Delivery          Delivery  `json:"delivery" db:"-"`
 	Payment           Payment   `json:"payment" db:"-"`
 	Items             []Item    `json:"items" db:"-"`
 	Locale            string    `json:"locale" db:"locale"`
@@ -20,9 +19,8 @@ type Order struct {
 	OofShard          string    `json:"oof_shard" db:"oof_shard"`
 }
 
-// Delivery представляет информацию о доставке
 type Delivery struct {
-	OrderUID string `json:"-" db:"order_uid"` // Связь с Order
+	OrderUID string `json:"-" db:"order_uid"`
 	Name     string `json:"name" db:"name"`
 	Phone    string `json:"phone" db:"phone"`
 	Zip      string `json:"zip" db:"zip"`

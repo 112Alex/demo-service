@@ -26,17 +26,10 @@ func NewServer(port string, cache *cache.Cache, db *db.DBClient) *Server {
 		db:    db,
 	}
 
-	// 1. Обработчик для API-запросов
 	router.HandleFunc("/order/", s.orderHandler)
 
-	// 2. Правильная настройка для обслуживания статических файлов
-	// Обработчик http.StripPrefix убирает префикс "/static/" из URL,
-	// а http.FileServer ищет файлы в директории "./web/static".
 	fs := http.FileServer(http.Dir("./web/static"))
 	router.Handle("/static/", http.StripPrefix("/static/", fs))
-
-	// 3. Обработчик для главной страницы
-	// Он явно отдает index.html для корневого пути.
 	router.HandleFunc("/", s.homeHandler)
 
 	s.httpServer = &http.Server{
