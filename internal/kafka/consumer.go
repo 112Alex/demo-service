@@ -8,18 +8,21 @@ import (
 
 	"github.com/112Alex/demo-service.git/internal/cache"
 	"github.com/112Alex/demo-service.git/internal/config"
-	"github.com/112Alex/demo-service.git/internal/db"
 	"github.com/112Alex/demo-service.git/internal/model"
 
 	"github.com/segmentio/kafka-go"
 )
+
+type OrderSaver interface {
+	SaveOrder(ctx context.Context, order *model.Order) error
+}
 
 // Consumer represents a Kafka consumer with retry and DLQ support.
 // It consumes messages, attempts to persist them, stores them in cache and commits offsets.
 type Consumer struct {
 	reader *kafka.Reader
 	writer *kafka.Writer
-	db     *db.DBClient
+	db     OrderSaver
 	cache  *cache.Cache
 
 	maxRetries     int
@@ -27,7 +30,7 @@ type Consumer struct {
 }
 
 // NewConsumer creates a consumer and DLQ producer based on config.
-func NewConsumer(cfg *config.Config, db *db.DBClient, cache *cache.Cache) *Consumer {
+func NewConsumer(cfg *config.Config, dbSaver OrderSaver, cache *cache.Cache) *Consumer {
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers: cfg.KafkaBrokers,
 		Topic:   cfg.KafkaTopic,
@@ -45,7 +48,7 @@ func NewConsumer(cfg *config.Config, db *db.DBClient, cache *cache.Cache) *Consu
 	return &Consumer{
 		reader: reader,
 		writer: writer,
-		db:     db,
+		db:     dbSaver,
 		cache:  cache,
 		maxRetries:   cfg.KafkaMaxRetries,
 		retryBackoff: cfg.KafkaRetryBackoff,
