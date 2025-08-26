@@ -5,6 +5,9 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
+	"strconv"
+	"time"
 
 	"github.com/112Alex/demo-service.git/internal/model"
 )
@@ -19,6 +22,15 @@ func NewDBClient(connStr string) (*DBClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ошибка при открытии соединения с БД: %w", err)
 	}
+
+	// Configure connection pool sizes from env or defaults
+	maxOpen := getEnvAsInt("DB_MAX_OPEN_CONNS", 25)
+	maxIdle := getEnvAsInt("DB_MAX_IDLE_CONNS", 25)
+	maxLifeMinutes := getEnvAsInt("DB_CONN_MAX_LIFETIME_MIN", 5)
+
+	db.SetMaxOpenConns(maxOpen)
+	db.SetMaxIdleConns(maxIdle)
+	db.SetConnMaxLifetime(time.Duration(maxLifeMinutes) * time.Minute)
 
 	if err = db.Ping(); err != nil {
 		return nil, fmt.Errorf("ошибка при проверке соединения с БД: %w", err)
@@ -180,4 +192,14 @@ func (c *DBClient) GetAllOrders(ctx context.Context) ([]*model.Order, error) {
 	}
 
 	return orders, nil
+}
+
+// helper
+func getEnvAsInt(key string, defaultVal int) int {
+	if v, ok := os.LookupEnv(key); ok {
+		if i, err := strconv.Atoi(v); err == nil {
+			return i
+		}
+	}
+	return defaultVal
 }

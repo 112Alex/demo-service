@@ -52,3 +52,9 @@ CREATE TABLE IF NOT EXISTS items (
     status INTEGER NOT NULL,
     order_uid VARCHAR(255) REFERENCES orders(order_uid) ON DELETE CASCADE
 );
+
+-- Indexes to improve query performance
+CREATE INDEX IF NOT EXISTS idx_orders_track_number ON orders(track_number);
+CREATE INDEX IF NOT EXISTS idx_orders_customer_id ON orders(customer_id);
+CREATE INDEX IF NOT EXISTS idx_items_order_uid ON items(order_uid);
+CREATE INDEX IF NOT EXISTS idx_payment_order_uid ON payment(order_uid);

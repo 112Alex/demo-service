@@ -4,92 +4,116 @@ import (
 	"context"
 	"encoding/json"
 	"log"
-	"os"
-	"os/signal"
-	"syscall"
+	"time"
 
 	"github.com/112Alex/demo-service.git/internal/cache"
+	"github.com/112Alex/demo-service.git/internal/config"
 	"github.com/112Alex/demo-service.git/internal/db"
 	"github.com/112Alex/demo-service.git/internal/model"
 
 	"github.com/segmentio/kafka-go"
 )
 
-// Consumer представляет собой потребителя Kafka.
+// Consumer represents a Kafka consumer with retry and DLQ support.
+// It consumes messages, attempts to persist them, stores them in cache and commits offsets.
 type Consumer struct {
 	reader *kafka.Reader
+	writer *kafka.Writer
 	db     *db.DBClient
 	cache  *cache.Cache
+
+	maxRetries     int
+	retryBackoff   time.Duration
 }
 
-// NewConsumer создает и возвращает новый Kafka-потребитель.
-func NewConsumer(brokers []string, topic string, db *db.DBClient, cache *cache.Cache) *Consumer {
+// NewConsumer creates a consumer and DLQ producer based on config.
+func NewConsumer(cfg *config.Config, db *db.DBClient, cache *cache.Cache) *Consumer {
 	reader := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:  brokers,
-		Topic:    topic,
-		GroupID:  "order-consumer-group",
-		MinBytes: 10e3, // 10KB
-		MaxBytes: 10e6, // 10MB
+		Brokers: cfg.KafkaBrokers,
+		Topic:   cfg.KafkaTopic,
+		GroupID: "order-consumer-group",
+		MinBytes: 10e3,
+		MaxBytes: 10e6,
 	})
+
+	writer := &kafka.Writer{
+		Addr:     kafka.TCP(cfg.KafkaBrokers...),
+		Topic:    cfg.KafkaDeadTopic,
+		Balancer: &kafka.LeastBytes{},
+	}
 
 	return &Consumer{
 		reader: reader,
+		writer: writer,
 		db:     db,
 		cache:  cache,
+		maxRetries:   cfg.KafkaMaxRetries,
+		retryBackoff: cfg.KafkaRetryBackoff,
 	}
 }
 
-// StartConsumption начинает чтение сообщений из Kafka.
+// StartConsumption launches message consumption loop until context is cancelled.
 func (c *Consumer) StartConsumption(ctx context.Context) {
 	log.Println("Запуск потребителя Kafka...")
 
-	// Горутина для обработки сообщений
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				log.Println("Остановка потребителя Kafka...")
-				c.reader.Close()
-				return
-			default:
-				m, err := c.reader.ReadMessage(ctx)
-				if err != nil {
-					log.Printf("Ошибка при чтении сообщения: %v", err)
-					continue
-				}
-
-				log.Printf("Получено сообщение из Kafka: %s", string(m.Value))
-
-				// Десериализация сообщения
-				var order model.Order
-				if err := json.Unmarshal(m.Value, &order); err != nil {
-					log.Printf("Ошибка при парсинге JSON: %v", err)
-					continue // Пропускаем невалидное сообщение
-				}
-
-				// Валидация данных
-				if order.OrderUID == "" {
-					log.Println("Пропускаем сообщение с пустым order_uid")
-					continue
-				}
-
-				// Сохранение в БД
-				if err := c.db.SaveOrder(ctx, &order); err != nil {
-					log.Printf("Ошибка при сохранении заказа %s в БД: %v", order.OrderUID, err)
-					continue // Пропускаем, если не удалось сохранить
-				}
-
-				// Добавление в кэш
-				c.cache.Set(order.OrderUID, &order)
-				log.Printf("Заказ %s успешно обработан и сохранен", order.OrderUID)
+	for {
+		m, err := c.reader.FetchMessage(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				break
 			}
+			log.Printf("Ошибка FetchMessage: %v", err)
+			continue
 		}
-	}()
 
-	// Ожидание сигнала завершения
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
+		if err := c.handleMessage(ctx, m); err != nil {
+			log.Printf("Не удалось обработать сообщение offset %d: %v", m.Offset, err)
+			// don't commit offset to allow reprocessing; optionally send to DLQ already here
+			continue
+		}
 
-	log.Println("Получен сигнал завершения. Остановка...")
+		if err := c.reader.CommitMessages(ctx, m); err != nil {
+			log.Printf("Ошибка CommitMessages: %v", err)
+		}
+	}
+
+	_ = c.reader.Close()
+	_ = c.writer.Close()
+}
+
+// handleMessage processes message with retry and DLQ.
+func (c *Consumer) handleMessage(ctx context.Context, m kafka.Message) error {
+	var order model.Order
+	if err := json.Unmarshal(m.Value, &order); err != nil {
+		log.Printf("Ошибка JSON, отправляем в DLQ: %v", err)
+		return c.produceToDLQ(ctx, m)
+	}
+	if order.OrderUID == "" {
+		log.Println("Пустой order_uid, отправляем в DLQ")
+		return c.produceToDLQ(ctx, m)
+	}
+
+	// retry loop for DB save
+	var err error
+	for attempt := 0; attempt <= c.maxRetries; attempt++ {
+		err = c.db.SaveOrder(ctx, &order)
+		if err == nil {
+			break
+		}
+		log.Printf("Ошибка сохранения заказа %s, попытка %d/%d: %v", order.OrderUID, attempt+1, c.maxRetries+1, err)
+		time.Sleep(c.retryBackoff)
+	}
+
+	if err != nil {
+		log.Printf("Не удалось сохранить заказ %s после %d попыток, отправка в DLQ", order.OrderUID, c.maxRetries+1)
+		return c.produceToDLQ(ctx, m)
+	}
+
+	c.cache.Set(order.OrderUID, &order)
+	return nil
+}
+
+// produceToDLQ sends the original message to dead-letter topic.
+func (c *Consumer) produceToDLQ(ctx context.Context, m kafka.Message) error {
+	return c.writer.WriteMessages(ctx, kafka.Message{Key: m.Key, Value: m.Value, Time: time.Now()})
 }

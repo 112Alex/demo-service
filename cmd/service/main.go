@@ -34,13 +34,13 @@ func main() {
 	defer dbClient.Close()
 
 	// Инициализация кэша
-	orderCache := cache.NewCache()
+	orderCache := cache.NewCache(cfg.CacheCapacity, cfg.CacheTTL)
 
 	// Восстановление кэша из БД при старте
 	restoreCache(context.Background(), dbClient, orderCache)
 
 	// Запуск потребителя Kafka в отдельной горутине
-	kafkaConsumer := kafka.NewConsumer(cfg.KafkaBrokers, cfg.KafkaTopic, dbClient, orderCache)
+	kafkaConsumer := kafka.NewConsumer(cfg, dbClient, orderCache)
 	go kafkaConsumer.StartConsumption(context.Background())
 
 	// Запуск HTTP-сервера
